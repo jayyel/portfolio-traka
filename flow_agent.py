@@ -297,23 +297,37 @@ class SynthesisError(Exception):
 
 
 def _extract_json(text):
+    """Extract the first complete top-level JSON object, ignoring braces inside strings."""
     text = re.sub(r"```(?:json)?", "", text).strip()
     start = text.find("{")
     if start == -1:
         raise SynthesisError(f"no JSON object in model response: {text[:300]}")
     depth = 0
+    in_str = False
+    esc = False
     for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start:i + 1]
-    raise SynthesisError("unbalanced braces in model response")
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        else:
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+    raise SynthesisError("response truncated before JSON closed (raise max_tokens)")
 
 
 def _call_api(prompt, use_web_search=True):
-    body = {"model": MODEL, "max_tokens": 8000,
+    body = {"model": MODEL, "max_tokens": 16000,
             "messages": [{"role": "user", "content": prompt}]}
     if use_web_search:
         body["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 16}]
@@ -328,7 +342,8 @@ def _call_api(prompt, use_web_search=True):
     return r.json()
 
 
-def run_claude(prompt):
+def _generate(prompt):
+    """One full generation -> concatenated text. Handles the web-search-disabled fallback."""
     try:
         data = _call_api(prompt, use_web_search=True)
     except requests.HTTPError as e:
@@ -340,13 +355,23 @@ def run_claude(prompt):
                              use_web_search=False)
         else:
             raise  # genuine API/config error: stay loud so it gets fixed
-    text = "\n".join(b.get("text", "") for b in data.get("content", [])
+    stop = data.get("stop_reason")
+    if stop == "max_tokens":
+        print("[warn] response hit max_tokens — output may be truncated.")
+    return "\n".join(b.get("text", "") for b in data.get("content", [])
                      if b.get("type") == "text").strip()
-    try:
-        return json.loads(_extract_json(text))
-    except (json.JSONDecodeError, SynthesisError) as e:
-        print(f"[error] could not parse model JSON: {e}\n--- first 900 chars of response ---\n{text[:900]}")
-        raise SynthesisError(str(e))
+
+
+def run_claude(prompt):
+    last_text = ""
+    for attempt in (1, 2):
+        last_text = _generate(prompt)
+        try:
+            return json.loads(_extract_json(last_text))
+        except (json.JSONDecodeError, SynthesisError) as e:
+            print(f"[warn] synthesis parse attempt {attempt}/2 failed: {e}")
+    print(f"[error] both attempts failed. First 1000 chars of last response:\n{last_text[:1000]}")
+    raise SynthesisError("could not parse model JSON after 2 attempts")
 
 
 def fallback_digest(reason):
@@ -860,13 +885,16 @@ def main():
     for disp, name, ysym, ssym in EQUITIES:
         ch = get_equity_charts(ysym, ssym)
         charts_by["equities"][disp] = ch
-        price = last_price(ch.get("1M") or ch.get("YTD") or [])
-        equities_spot[disp] = {"price": price, "change": window_change((ch.get("1W") or [])[-2:]) if len(ch.get("1W", [])) >= 2 else window_change(ch.get("1M", [])[-2:] if len(ch.get("1M", [])) >= 2 else [])}
+        intraday = ch.get("1W") or []
+        daily = ch.get("1M") or ch.get("YTD") or []
+        price = last_price(intraday) or last_price(daily)
+        change = window_change(daily[-2:]) if len(daily) >= 2 else None  # prev close -> latest
+        equities_spot[disp] = {"price": price, "change": change}
 
     charts_by["fx"] = get_fx_charts()
-    fx_price = last_price(charts_by["fx"].get("1M") or charts_by["fx"].get("YTD") or [])
-    fx_1w = charts_by["fx"].get("1W", [])
-    fx_change = window_change(fx_1w[-2:]) if len(fx_1w) >= 2 else None
+    fx_daily = charts_by["fx"].get("1M") or charts_by["fx"].get("YTD") or []
+    fx_price = last_price(charts_by["fx"].get("1W") or []) or last_price(fx_daily)
+    fx_change = window_change(fx_daily[-2:]) if len(fx_daily) >= 2 else None
 
     snap = {"crypto": crypto_spot, "equities": equities_spot,
             "fx": {"price": fx_price, "change": fx_change}, "fng": get_fear_greed()}
