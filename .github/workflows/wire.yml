@@ -2,18 +2,12 @@ name: Morning Wire
 
 on:
   schedule:
-    # 11:30 UTC = 7:30 AM Miami (EDT), before US market open. Adjust if needed.
+    # 11:30 UTC = 7:30 AM Miami (EDT). Adjust if you like.
     - cron: "30 11 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: morning-wire
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -30,31 +24,20 @@ jobs:
       - name: Run agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Optional email — leave these unset to skip email and use the dashboard only:
+          # Optional email — leave unset to skip and use the site only:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-        run: python flow_agent.py
+        run: python -u flow_agent.py
 
-      - name: Commit history + archive
+      - name: Commit results
         run: |
           git config user.name "morning-wire"
           git config user.email "actions@github.com"
-          git add docs/ data/
-          git diff --staged --quiet || git commit -m "Morning Wire $(date -u +%F)"
-          git push
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Morning Wire $(date -u +%F)"
+            git push
+          fi
