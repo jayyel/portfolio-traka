@@ -292,20 +292,48 @@ sentence counts — he wants depth, so hit the HIGH end:
 }}"""
 
 
-def run_claude(prompt):
+def _call_api(prompt, use_web_search=True):
+    body = {"model": MODEL, "max_tokens": 8000,
+            "messages": [{"role": "user", "content": prompt}]}
+    if use_web_search:
+        body["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 16}]
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"},
-        json={"model": MODEL, "max_tokens": 8000,
-              "messages": [{"role": "user", "content": prompt}],
-              "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 16}]},
-        timeout=600)
+        json=body, timeout=600)
+    if r.status_code != 200:
+        # Surface the real reason instead of an opaque crash.
+        print(f"[api-error] HTTP {r.status_code}: {r.text[:600]}")
     r.raise_for_status()
-    text = "\n".join(b.get("text", "") for b in r.json().get("content", [])
+    return r.json()
+
+
+def run_claude(prompt):
+    try:
+        data = _call_api(prompt, use_web_search=True)
+    except requests.HTTPError as e:
+        body = getattr(e.response, "text", "") or ""
+        # If web search isn't enabled on the account, the brief is less current but
+        # still useful — retry once without it so the run doesn't fail outright.
+        if e.response is not None and e.response.status_code == 400 and "web_search" in body:
+            print("[warn] web search rejected (is it enabled in your Anthropic Console?) "
+                  "— retrying once WITHOUT live search. The brief will rely on the fetched "
+                  "prices only and skip fresh flow/news research until search is enabled.")
+            data = _call_api(prompt + "\n\n(NOTE: web search is unavailable this run; do "
+                             "NOT invent numbers you cannot fetch — write 'not found' and "
+                             "keep the analysis qualitative.)", use_web_search=False)
+        else:
+            raise
+    text = "\n".join(b.get("text", "") for b in data.get("content", [])
                      if b.get("type") == "text").strip()
     text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.M).strip()
-    return json.loads(text[text.find("{"):text.rfind("}") + 1])
+    slice_ = text[text.find("{"):text.rfind("}") + 1]
+    try:
+        return json.loads(slice_)
+    except json.JSONDecodeError as e:
+        print(f"[error] Claude did not return valid JSON: {e}\n--- first 800 chars ---\n{text[:800]}")
+        raise
 
 
 # ===========================================================================
@@ -876,4 +904,19 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        import traceback
+        print("\n" + "=" * 64)
+        print("MORNING WIRE FAILED — real error below:")
+        print(f"  {type(exc).__name__}: {exc}")
+        print("Common first-run causes:")
+        print("  1. ANTHROPIC_API_KEY secret missing or misnamed "
+              "(Settings -> Secrets and variables -> Actions).")
+        print("  2. Web search not enabled for your org in the Anthropic Console "
+              "(Console -> Settings -> the tool/privacy section).")
+        print("  3. API credit exhausted, or the model name isn't available on your key.")
+        print("=" * 64)
+        traceback.print_exc()
+        sys.exit(1)
