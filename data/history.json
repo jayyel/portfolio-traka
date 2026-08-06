@@ -1,0 +1,19 @@
+{
+ "headlines": [
+  {
+   "date": "2026-08-06",
+   "headline": "Live prices below \u2014 written analysis unavailable this run."
+  }
+ ],
+ "prices": {
+  "2026-08-06": {
+   "BTC": 64501,
+   "ETH": 1895.64,
+   "KO": 86.83000183105469,
+   "BRK.B": 518.8499755859375,
+   "PLTR": 158.42999267578125,
+   "CRCL": 63.279998779296875,
+   "USD/PEN": 3.378200054168701
+  }
+ }
+}
