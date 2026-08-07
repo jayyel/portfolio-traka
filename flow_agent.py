@@ -223,7 +223,7 @@ def last_price(points):
 # CLAUDE RESEARCH + SYNTHESIS
 # ===========================================================================
 
-def build_prompt(snap, today):
+def _prompt_header(snap, today):
     return f"""You are the markets analyst writing "The Morning Wire" for ONE reader:
 a fintech product manager in Miami who actively runs BTC/ETH basis trades and options
 positions on US-accessible venues (Coinbase Advanced, Kraken, Interactive Brokers /
@@ -235,61 +235,62 @@ prior briefs were TOO THIN. Give him real depth and real numbers. Today is {toda
 HARD DATA already fetched (ground truth; don't contradict, don't re-fetch prices):
 {json.dumps(snap, indent=2, default=str)}
 
-RESEARCH with web search (last ~24-48h). Be specific and quantitative:
-
-CRYPTO — for BTC and ETH, find the positioning data a basis/options trader needs:
-  • Perp funding rate (current, and annualized) — Coinglass/Velo. Positive = longs pay
-    shorts (crowded longs); negative = shorts pay.
-  • Annualized basis (CME and/or perp cash-and-carry) — the actual carry a long-spot /
-    short-futures trade earns right now.
-  • Spot BTC & ETH ETF net flow yesterday (Farside daily totals), $M, with sign.
-  • Futures open interest 24h change (rising OI + rising price = new longs; rising OI +
-    falling price = new shorts; falling OI = unwind/deleveraging).
-  • 24h long vs short liquidations.
-From those, set a single DIRECTION for each coin: "inflows / longs building",
-"outflows / longs unwinding", "shorts building", or "mixed / rangebound".
-
-EQUITIES — for EACH of KO, BRK.B, PLTR, CRCL, research: latest earnings result and
-reaction, analyst rating/price-target changes, unusual options activity, insider Form-4
-buying/selling, notable 13F / large-holder moves, short interest, and sector context.
-
-FX — USD/PEN: BCRP (Peru central bank) actions, copper prices, Peru political news.
-
 CONFIDENCE TAGS on every causal claim, inline: [STRONG] quantified direct link ·
 [LIKELY] plausible, timing fits · [SPECULATIVE] circulating narrative, weak evidence.
 NEVER invent a number — if not found, write "not found". Options content is EDUCATIONAL
-(explain how the strategy works and its tradeoffs for a long-term holder harvesting
-upside) — NOT a recommendation; do not tell him to place a specific trade.
+(how a strategy works and its tradeoffs for a long-term holder) — NOT a recommendation.
+Respond with ONLY a JSON object, no markdown fences. Hit the HIGH end of sentence counts."""
 
-Respond with ONLY a JSON object (no markdown fences), exactly this shape. Respect the
-sentence counts — he wants depth, so hit the HIGH end:
 
-{{
-  "market_read": "one punchy line for the masthead — the day's cross-asset story",
-  "lede": "4-5 sentences: the single most important thing across his book today and why it matters to him specifically",
-  "portfolio": "5-7 sentences: an insightful read on how his whole book is positioned and trending, using the portfolio weights/returns in the hard data. What's carrying it today and YTD, concentration vs diversification (call out any position that dominates), how the crypto sleeve is behaving vs the equity sleeve, and the main forward risk. He has compounded ~60% annualized for 3 years — respect that, be substantive and specific, not basic. Tag causal claims.",
-  "crypto": {{
-    "BTC": {{
+def build_prompt(snap, today, part):
+    header = _prompt_header(snap, today)
+    if part == "core":
+        return header + """
+
+RESEARCH with web search (last ~24-48h), specific and quantitative:
+CRYPTO — for BTC and ETH: perp funding (current + annualized), annualized basis / carry
+(CME and/or perp), yesterday's spot ETF net flow $M (Farside), futures open-interest 24h
+change, and 24h long vs short liquidations. Set a DIRECTION per coin.
+FX — USD/PEN: BCRP actions, copper, Peru political news.
+
+Return EXACTLY this JSON shape:
+{
+  "market_read": "one punchy masthead line — the day's cross-asset story",
+  "lede": "4-5 sentences: the single most important thing across his book today and why it matters to him",
+  "portfolio": "5-7 sentences: how his whole book is positioned and trending, using the portfolio weights/returns in the hard data. What's carrying it today and YTD, concentration vs diversification (call out any dominant position), crypto sleeve vs equity sleeve, main forward risk. He's compounded ~60% annualized for 3 years — be substantive, not basic. Tag claims.",
+  "crypto": {
+    "BTC": {
       "direction": "inflows / longs building | outflows / longs unwinding | shorts building | mixed / rangebound",
       "funding": "current funding + annualized, one line with a number",
       "basis": "annualized basis / carry, one line with a number",
       "etf_net": "yesterday's spot ETF net flow $M with sign",
       "oi": "open interest 24h direction + what it implies",
       "liquidations": "24h long vs short liquidations",
-      "book_read": "5-7 sentences: where money is going and WHY and HOW, and what it means concretely for (a) his cash-and-carry basis trade and (b) long vs short options positioning. Reference the venues he can actually use. Tag claims."
-    }},
-    "ETH": {{ "direction": "...", "funding": "...", "basis": "...", "etf_net": "...", "oi": "...", "liquidations": "...", "book_read": "..." }}
-  }},
-  "stocks": {{
-    "KO":    {{ "moved": "4-6 sentences: what moved it in 24h and the MECHANISM (why/how), tagged", "outlook": "4-5 sentences: 6-18 month outlook, drivers, risks", "positioning": "3-5 sentences: what large holders / insiders / options flow suggest big players are doing, tagged", "options": "4-6 sentences: strategies a long-term holder uses to harvest upside on THIS name (e.g. covered calls, cash-secured puts, collars, LEAPS / poor-man's covered call) with concrete tradeoffs and what current IV/vol makes attractive — educational, not advice", "bull": "1-2 sentences", "bear": "1-2 sentences" }},
-    "BRK.B": {{ "moved": "...", "outlook": "...", "positioning": "...", "options": "...", "bull": "...", "bear": "..." }},
-    "PLTR":  {{ "moved": "...", "outlook": "...", "positioning": "...", "options": "...", "bull": "...", "bear": "..." }},
-    "CRCL":  {{ "moved": "...", "outlook": "...", "positioning": "...", "options": "...", "bull": "...", "bear": "..." }}
-  }},
-  "fx": {{ "moved": "3-4 sentences on USD/PEN drivers, tagged", "outlook": "2-3 sentences + what it means for his USD->PEN corridor economics" }},
-  "lesson": "4-6 sentences: one genuinely useful flow-reading or positioning lesson drawn from TODAY's tape",
-  "watch": ["4-5 detailed bullets: dated catalysts across crypto, his 4 stocks, and macro"]
-}}"""
+      "book_read": "5-7 sentences: where money is going, WHY and HOW, and what it means for (a) his cash-and-carry basis trade and (b) long vs short options. Reference venues he can use. Tag claims."
+    },
+    "ETH": { "direction": "...", "funding": "...", "basis": "...", "etf_net": "...", "oi": "...", "liquidations": "...", "book_read": "..." }
+  },
+  "fx": { "moved": "3-4 sentences on USD/PEN drivers, tagged", "outlook": "2-3 sentences + what it means for his USD->PEN corridor economics" },
+  "lesson": "4-6 sentences: one genuinely useful flow/positioning lesson from TODAY's tape",
+  "watch": ["4-5 detailed bullets: dated catalysts across crypto, his stocks, and macro"]
+}"""
+    # part == "stocks"
+    return header + """
+
+RESEARCH with web search (last ~24-48h). For EACH of KO, BRK.B, PLTR, CRCL: latest
+earnings result and reaction, analyst rating/price-target changes, unusual options
+activity, insider Form-4 buys/sells, notable 13F / large-holder moves, short interest,
+and sector context.
+
+Return EXACTLY this JSON shape (all four tickers):
+{
+  "stocks": {
+    "KO":    { "moved": "4-6 sentences: what moved it in 24h and the MECHANISM (why/how), tagged", "outlook": "4-5 sentences: 6-18 month outlook, drivers, risks", "positioning": "3-5 sentences: what large holders / insiders / options flow suggest big players are doing, tagged", "options": "4-6 sentences: strategies a long-term holder uses to harvest upside on THIS name (covered calls, cash-secured puts, collars, LEAPS / poor-man's covered call) with tradeoffs and what current IV makes attractive — educational", "bull": "1-2 sentences", "bear": "1-2 sentences" },
+    "BRK.B": { "moved": "...", "outlook": "...", "positioning": "...", "options": "...", "bull": "...", "bear": "..." },
+    "PLTR":  { "moved": "...", "outlook": "...", "positioning": "...", "options": "...", "bull": "...", "bear": "..." },
+    "CRCL":  { "moved": "...", "outlook": "...", "positioning": "...", "options": "...", "bull": "...", "bear": "..." }
+  }
+}"""
 
 
 class SynthesisError(Exception):
@@ -326,16 +327,42 @@ def _extract_json(text):
     raise SynthesisError("response truncated before JSON closed (raise max_tokens)")
 
 
+def _post_with_retry(body, tries=5):
+    """POST to the API, retrying transient network drops and 429/5xx with backoff.
+    A fresh connection each attempt avoids stale-keepalive RemoteDisconnected errors."""
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+               "content-type": "application/json", "connection": "close"}
+    last_exc = None
+    for i in range(tries):
+        try:
+            r = requests.post(url, headers=headers, json=body, timeout=600)
+        except (requests.ConnectionError, requests.Timeout,
+                requests.exceptions.ChunkedEncodingError) as e:
+            last_exc = e
+            wait = 4 * (2 ** i)  # 4, 8, 16, 32, 64s
+            print(f"[retry] network error {type(e).__name__} "
+                  f"(attempt {i + 1}/{tries}); waiting {wait}s: {e}")
+            time.sleep(wait)
+            continue
+        if r.status_code in (408, 409, 429, 500, 502, 503, 504, 529):
+            wait = 4 * (2 ** i)
+            print(f"[retry] HTTP {r.status_code} (attempt {i + 1}/{tries}); waiting {wait}s")
+            time.sleep(wait)
+            last_exc = None
+            continue
+        return r
+    if last_exc is not None:
+        raise last_exc
+    return r  # last response (non-2xx); caller surfaces + raises
+
+
 def _call_api(prompt, use_web_search=True):
-    body = {"model": MODEL, "max_tokens": 16000,
+    body = {"model": MODEL, "max_tokens": 8000,
             "messages": [{"role": "user", "content": prompt}]}
     if use_web_search:
         body["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 16}]
-    r = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
-                 "content-type": "application/json"},
-        json=body, timeout=600)
+    r = _post_with_retry(body)
     if r.status_code != 200:
         print(f"[api-error] HTTP {r.status_code}: {r.text[:800]}")
     r.raise_for_status()
@@ -940,12 +967,25 @@ def main():
     print(f"[ok] portfolio total ${total:,.0f}, today {today_pct}%")
     print(f"[ok] snapshot: {json.dumps({k: v for k, v in snap.items() if k != 'portfolio'}, default=str)[:220]}...")
 
-    print("[..] Claude research + synthesis (3-6 min)")
+    print("[..] Claude synthesis — part 1/2 (crypto, portfolio, FX)")
+    digest, errors = {}, []
     try:
-        digest = run_claude(build_prompt(snap, today))
-    except SynthesisError as e:
-        print(f"[warn] synthesis failed — rendering a degraded page so the site still updates: {e}")
-        digest = fallback_digest(str(e)[:280])
+        digest.update(run_claude(build_prompt(snap, today, "core")))
+    except Exception as e:
+        print(f"[warn] core synthesis failed: {e}")
+        errors.append(f"core: {e}")
+        digest.update(fallback_digest(str(e)[:200]))
+
+    print("[..] Claude synthesis — part 2/2 (equities)")
+    try:
+        digest["stocks"] = run_claude(build_prompt(snap, today, "stocks")).get("stocks", {})
+    except Exception as e:
+        print(f"[warn] stock synthesis failed: {e}")
+        errors.append(f"stocks: {e}")
+        digest.setdefault("stocks", {})
+
+    if errors:
+        digest["_error"] = " · ".join(errors)[:280]
     headline = digest.get("market_read") or digest.get("lede", "")[:90]
 
     html = render(today, snap, digest, charts_by, port)
