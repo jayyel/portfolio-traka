@@ -7,6 +7,10 @@
   {
    "date": "2026-08-07",
    "headline": "Fear-to-Fear recovery: BTC/ETH grind higher on fourth-straight ETF inflow day as sentiment lifts from Extreme Fear to Fear, but perp funding stays muted and the real alpha is in the carry, not the directional bet."
+  },
+  {
+   "date": "2026-08-08",
+   "headline": "PLTR earnings rocket carries the book; BTC/ETH ETF inflows hit five-day streak while funding stays muted \u2014 a cash-and-carry sweet spot if CME contango holds."
   }
  ],
  "prices": {
@@ -27,6 +31,15 @@
    "PLTR": 155.9199981689453,
    "CRCL": 63.279998779296875,
    "USD/PEN": 3.3803999423980713
+  },
+  "2026-08-08": {
+   "BTC": 64919,
+   "ETH": 1918.46,
+   "KO": 87.05000305175781,
+   "BRK.B": 521.7999877929688,
+   "PLTR": 172.00999450683594,
+   "CRCL": 66.66999816894531,
+   "USD/PEN": 3.3822999000549316
   }
  }
 }
